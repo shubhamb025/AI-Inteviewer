@@ -2,7 +2,9 @@ import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
+import json
 
+# Load API key
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
@@ -27,7 +29,7 @@ def generate_interview_questions():
     Q5: [Question 5]
     """
     response = model.generate_content(prompt)
-    return response.text
+    return response.text.strip()
 
 def evaluate_candidate(responses):
     prompt = f"""
@@ -52,21 +54,29 @@ def evaluate_candidate(responses):
     }}
     """
     response = model.generate_content(prompt)
-    return response.text
-
+    return response.text.strip()
 
 @app.route("/questions", methods=["GET"])
 def get_questions():
-    questions = generate_interview_questions()
-    return jsonify({"questions": questions})
+    questions_text = generate_interview_questions()
+
+    # Split by lines that start with Q1, Q2, etc.
+    questions_list = [q.strip() for q in questions_text.split("\n") if q.strip().startswith("Q")]
+    return jsonify({"questions": questions_list})
 
 @app.route("/evaluate", methods=["POST"])
 def evaluate():
     data = request.json
     responses = data.get("answers", "")
     result = evaluate_candidate(responses)
-    return jsonify({"evaluation": result})
 
-# Run Flask
+    # Try parsing JSON from Gemini’s response
+    try:
+        parsed_result = json.loads(result)
+    except Exception:
+        parsed_result = {"error": "Invalid JSON returned by model", "raw": result}
+
+    return jsonify(parsed_result)
+
 if __name__ == "__main__":
     app.run(debug=True)
