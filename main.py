@@ -1,10 +1,9 @@
+from flask import Flask, render_template, request
+import os, json
 import google.generativeai as genai
-import os
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
-import json
-
-# Load API key
+import re
+# Setup
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
@@ -14,22 +13,23 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 
 def generate_interview_questions():
     prompt = """
-    You are an interviewer for an SDE Intern role. Generate 5 relevant interview questions that cover:
-    1. Technical knowledge (programming, data structures, algorithms)
-    2. Problem-solving approach
-    3. Communication skills
-    4. Experience and projects
-    5. Behavioral/situational questions
-
-    Return the questions in this exact format:
-    Q1: [Question 1]
-    Q2: [Question 2]
-    Q3: [Question 3]
-    Q4: [Question 4]
-    Q5: [Question 5]
+    You are an interviewer for an SDE Intern role. 
+    Generate exactly 5 relevant interview questions in this format:
+    Q1: ...
+    Q2: ...
+    Q3: ...
+    Q4: ...
+    Q5: ...
+    Do not include any explanations or extra text.
     """
     response = model.generate_content(prompt)
-    return response.text.strip()
+    text = response.text.strip()
+
+    questions = re.findall(r"(Q[1-5]:.*)", text)
+    if not questions:
+        questions = [line for line in text.splitlines() if line.strip()]
+    return questions[:5]
+
 
 def evaluate_candidate(responses):
     prompt = f"""
@@ -44,7 +44,7 @@ def evaluate_candidate(responses):
     3. Provide a short performance summary.
     4. Give a final recommendation (Hire or No Hire).
 
-    Return the result strictly in JSON format like this:
+    Return ONLY valid JSON in this format:
     {{
       "technical_score": 0-10,
       "problem_solving_score": 0-10,
@@ -54,31 +54,36 @@ def evaluate_candidate(responses):
     }}
     """
     response = model.generate_content(prompt)
-    return response.text.strip()
+    text = response.text.strip()
 
-@app.route("/questions", methods=["GET"])
-def get_questions():
-    questions_text = generate_interview_questions()
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except:
+            return {"summary": text}
+    return {"summary": text}
 
-    # Split by lines that start with Q1, Q2, etc.
-    questions_list = [q.strip() for q in questions_text.split("\n") if q.strip().startswith("Q")]
-    return jsonify({"questions": questions_list})
+# Routes
+@app.route("/")
+def welcome():
+    return render_template("welcome.html")
 
-@app.route("/evaluate", methods=["POST"])
+@app.route("/questions")
+def questions():
+    q_list = generate_interview_questions()
+    return render_template("questions.html", questions=q_list)
+
 @app.route("/evaluate", methods=["POST"])
 def evaluate():
-    data = request.json
-    responses = data.get("answers", "")
-    result_text = evaluate_candidate(responses)
+    answers = []
+    for i in range(1, 6):
+        ans = request.form.get(f"answer{i}", "")
+        answers.append(f"Q{i}: {ans}")
+    answers_text = "\n".join(answers)
 
-    import json
-    try:
-        result_json = json.loads(result_text)
-    except:
-        result_json = {"raw_output": result_text}
-
-    return jsonify(result_json)
-
+    result = evaluate_candidate(answers_text)
+    return render_template("result.html", result=result)
 
 if __name__ == "__main__":
     app.run(debug=True)
