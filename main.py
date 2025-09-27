@@ -65,18 +65,20 @@ def get_questions():
     return jsonify({"questions": questions_list})
 
 @app.route("/evaluate", methods=["POST"])
+@app.route("/evaluate", methods=["POST"])
 def evaluate():
     data = request.json
     responses = data.get("answers", "")
-    result = evaluate_candidate(responses)
+    result_text = evaluate_candidate(responses)
 
-    # Try parsing JSON from Gemini’s response
+    import json
     try:
-        parsed_result = json.loads(result)
-    except Exception:
-        parsed_result = {"error": "Invalid JSON returned by model", "raw": result}
+        result_json = json.loads(result_text)
+    except:
+        result_json = {"raw_output": result_text}
 
-    return jsonify(parsed_result)
+    return jsonify(result_json)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
